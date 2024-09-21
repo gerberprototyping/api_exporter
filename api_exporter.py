@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-# import xml.etree.ElementTree as ETree
-# import socket, time
-import requests
+"""Prometheus exporter to convert arbitrary APIs into metrics"""
+
 import json
 from typing import Dict, Union
 
-from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily, CounterMetricFamily
+from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily
 from prometheus_client.utils import floatToGoString
 
+import requests
 from flask import Flask, request, make_response, Response
-from urllib.parse import quote
-# from markupsafe import escape
 
 from schema import Schema, And, Or, Use, Optional, Regex, SchemaError
 
@@ -181,87 +179,13 @@ def webroot() -> Response:
         Response: HTTP response to query
     """
 
-    # target = escape(request.args.get("target",""))
-    # port = int( escape(request.args.get("port",str(-1))) )
-    # if (not target):
-    #     return make_response_plain("<p>Target required</p>", 404)
-    # if port <= 0:
-    #     return make_response_plain("<p>Port required</p>", 404)
-    # body = request.get_json()
-    body = {
-        "targets": [
-            "10.11.1.71",
-            "10.11.1.74",
-            # "bad_target",
-        ],
-        "requests": {
-            "status": {
-                "protocol": "http",
-                "path": "/cm?cmnd=status",
-                "format": "json",
-            },
-            "energy": {
-                "protocol": "http",
-                "path": "/cm?cmnd=status%208",
-                "format": "json",
-            },
-        },
-        "labels": {
-            "device": ["status", "Status", "DeviceName"],
-            "name": ["status", "Status", "FriendlyName", 0],
-            "topic": ["status", "Status", "Topic"],
-        },
-        "default_labels": "__all__",
-        "metrics": {
-            "tasmota_state": {
-                "type": "gauge",
-                "desc": "Current power state of device",
-                "value": ["status", "Status", "Power"],
-            },
-            "tasmota_voltage": {
-                "type": "gauge",
-                "desc": "Instantaneous voltage",
-                "value": ["energy", "StatusSNS", "ENERGY", "Voltage"],
-            },
-            "tasmota_current": {
-                "type": "gauge",
-                "desc": "Instantaneous current",
-                "value": ["energy", "StatusSNS", "ENERGY", "Current"],
-            },
-            "tasmota_apparent_power": {
-                "type": "gauge",
-                "desc": "Instantaneous apparent power",
-                "value": ["energy", "StatusSNS", "ENERGY", "ApparentPower"],
-            },
-            "tasmota_active_power": {
-                "type": "gauge",
-                "desc": "Instantaneous active power",
-                "value": ["energy", "StatusSNS", "ENERGY", "Power"],
-            },
-            "tasmota_reactive_power": {
-                "type": "gauge",
-                "desc": "Instantaneous reactive power",
-                "value": ["energy", "StatusSNS", "ENERGY", "ReactivePower"],
-            },
-            "tasmota_power_factor": {
-                "type": "gauge",
-                "desc": "Percentage of active power to apparent power",
-                "value": ["energy", "StatusSNS", "ENERGY", "Factor"],
-            },
-            "tasmota_energy_today": {
-                "type": "counter",
-                "desc": "Total energy used today",
-                "value": ["energy", "StatusSNS", "ENERGY", "Today"],
-            },
-            "tasmota_energy": {
-                "type": "counter",
-                "desc": "Total energy used to date",
-                "value": ["energy", "StatusSNS", "ENERGY", "Total"],
-            },
-        },
-    }
+    if request.content_length < 32*1024:
+        content = request.get_data(cache=False, as_text=True)
+    else:
+        return make_response_plain("Content must not exceed 32KB", 404)
+
     try:
-        config = SCHEMA.validate( json.dumps(body) )
+        config = SCHEMA.validate(content)
     except SchemaError as ex:
         return make_response_plain(f"SchemaError: {ex}", 404)
 
@@ -342,19 +266,6 @@ def webroot() -> Response:
 
     print(f"    Found {len(metrics)} metrics.")
     return make_response_plain(format_metrics(metrics), 200)
-
-    # startTime = time.time()
-    # try:
-    #     dataXML = ETree.fromstring( getRawXML(target,port,"/xmldata") )
-    #     configXML = ETree.fromstring( getRawXML(target,port,"/xmlconfig") )
-    #     infoMetric = getInfo(configXML)
-    #     probeMetric = getProbes(dataXML, configXML)
-    #     scrapeDuration = time.time() - startTime
-    #     scrapeMetric = GaugeMetricFamily("sensatronics_scrape_duration", "Time to scrape probes in seconds", value=scrapeDuration)
-    #     output = generateMetrics(infoMetric, probeMetric, scrapeMetric)
-    #     return make_response_plain(output, 200)
-    # except Exception:
-    #     return make_response_plain("Bad Target", 404)
 
 
 @app.route("/metrics")

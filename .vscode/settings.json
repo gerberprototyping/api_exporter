@@ -3,7 +3,6 @@
         "gaugehistogram",
         "gcount",
         "gsum",
-        "markupsafe",
         "mtype",
         "stateset",
         "webroot"
