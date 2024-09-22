@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prometheus exporter to convert arbitrary APIs into metrics"""
 
+import re
 import json
 from typing import Dict, Union
 
@@ -14,6 +15,12 @@ from schema import Schema, And, Or, Use, Optional, Regex, SchemaError
 
 
 METRICS_PORT = 10023
+
+CONFIG_DIR = "/etc/config/"
+
+REQUEST_PROTOCOLS = ["http", "https"]
+REQUEST_FORMATS = ["json"]
+METRIC_TYPES = ["gauge", "counter"]
 
 
 app = Flask(__name__)
@@ -109,10 +116,6 @@ def multi_index(container:Union[list,dict,tuple], keys:list) -> any:
 
 
 
-REQUEST_PROTOCOLS = ["http", "https"]
-REQUEST_FORMATS = ["json"]
-METRIC_TYPES = ["gauge", "counter"]
-
 class ConfigSchema(Schema):
     """Adds custom validate post-hook"""
     def validate(self, data:any, **kwargs:Dict[str, any]) -> any:
@@ -179,13 +182,22 @@ def webroot() -> Response:
         Response: HTTP response to query
     """
 
-    if request.content_length < 32*1024:
-        content = request.get_data(cache=False, as_text=True)
+    # Load config file
+    if "config" in request.args:
+        config_file = request.args["config"]
+        if not re.match(r"^\.?/", config_file):
+            config_file = CONFIG_DIR + config_file
+        try:
+            with open(config_file, "r", encoding="UTF-8") as f:
+                config_json = f.read()
+        except IOError as ex:
+            return make_response_plain(f"{type(ex).__name__}: Unable to load config file. {ex}", 404) # pylint: disable=line-too-long
     else:
-        return make_response_plain("Content must not exceed 32KB", 404)
+        return make_response_plain("MissingArgument: URL arg 'config' must specify name of config file", 404) # pylint: disable=line-too-long
 
+    # Validate config schema
     try:
-        config = SCHEMA.validate(content)
+        config = SCHEMA.validate(config_json)
     except SchemaError as ex:
         return make_response_plain(f"SchemaError: {ex}", 404)
 
