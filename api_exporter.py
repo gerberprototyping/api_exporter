@@ -209,6 +209,7 @@ def webroot() -> Response:
         labels=["target", "request", "path"]
     )
     responses = {}
+    failed_targets = []
     for target in config["targets"]:
         responses[target] = {}
         for name,conf in config["requests"].items():
@@ -228,13 +229,22 @@ def webroot() -> Response:
                 if not isinstance(response, type(None)):
                     responses[target][name] = response
 
-            except requests.exceptions.Timeout:
+            except requests.exceptions.RequestException as ex:
+                print(f"Request to {url} failed. {type(ex).__name__}: {ex}")
                 # return make_response_plain(f"TimeoutError: Request \"{url}\" timed out", 400)
                 request_metric.add_metric([target, name, conf["path"]], -1)
+                if target not in failed_targets:
+                    failed_targets.append(target)
+
+    for target in failed_targets:
+        responses.pop(target)
 
     # Generate Metrics
     metrics = [request_metric]
     for target in config["targets"]:
+        if target in failed_targets:
+            continue
+
         # Resolve labels for this target
         labels = {}
         for name,keys in config["labels"].items():
