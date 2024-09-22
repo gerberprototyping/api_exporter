@@ -3,6 +3,7 @@
 
 import re
 import json
+import time
 from typing import Dict, Union
 
 from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily
@@ -191,38 +192,47 @@ def webroot() -> Response:
             with open(config_file, "r", encoding="UTF-8") as f:
                 config_json = f.read()
         except IOError as ex:
-            return make_response_plain(f"{type(ex).__name__}: Unable to load config file. {ex}", 404) # pylint: disable=line-too-long
+            return make_response_plain(f"{type(ex).__name__}: Unable to load config file. {ex}", 400) # pylint: disable=line-too-long
     else:
-        return make_response_plain("MissingArgument: URL arg 'config' must specify name of config file", 404) # pylint: disable=line-too-long
+        return make_response_plain("MissingArgument: URL arg 'config' must specify name of config file", 400) # pylint: disable=line-too-long
 
     # Validate config schema
     try:
         config = SCHEMA.validate(config_json)
     except SchemaError as ex:
-        return make_response_plain(f"SchemaError: {ex}", 404)
+        return make_response_plain(f"SchemaError: {ex}", 400)
 
     # API requests
+    request_metric = GaugeMetricFamily(
+        "api_exporter_request_duration",
+        documentation="Duration of each request to API endpoints",
+        labels=["target", "request", "path"]
+    )
     responses = {}
     for target in config["targets"]:
         responses[target] = {}
         for name,conf in config["requests"].items():
             url = f"{conf['protocol']}://{target}{conf['path']}"
             try:
+                start = time.time()
                 response = requests.get(url, timeout=10)
+                duration = time.time() - start
+                request_metric.add_metric([target, name, conf["path"]], duration)
             except requests.exceptions.Timeout:
-                return make_response_plain(f"TimeoutError: Request \"{url}\" timed out", 404)
+                # return make_response_plain(f"TimeoutError: Request \"{url}\" timed out", 400)
+                request_metric.add_metric([target, name, conf["path"]], -1)
             if "json" == conf["format"].lower():
                 try:
                     response = response.json()
                 except ValueError as ex:
-                    return make_response_plain(f"ValueError: Error while decoding json response of request \"{url}\"\r\n{ex}", 404) # pylint: disable=line-too-long
+                    return make_response_plain(f"ValueError: Error while decoding json response of request \"{url}\"\r\n{ex}", 400) # pylint: disable=line-too-long
             # Config is validated, so no else needed
 
             if not isinstance(response, type(None)):
                 responses[target][name] = response
 
     # Generate Metrics
-    metrics = []
+    metrics = [request_metric]
     for target in config["targets"]:
         # Resolve labels for this target
         labels = {}
@@ -230,7 +240,7 @@ def webroot() -> Response:
             try:
                 labels[name] = multi_index(responses[target], keys)
             except (IndexError, KeyError, ValueError) as ex:
-                return make_response_plain(f"{type(ex).__name__}: {ex} while resolving label '{name}' for target {target}", 404) # pylint: disable=line-too-long
+                return make_response_plain(f"{type(ex).__name__}: {ex} while resolving label '{name}' for target {target}", 400) # pylint: disable=line-too-long
 
         # Set default labels
         default_labels = {"target": target}
@@ -242,7 +252,7 @@ def webroot() -> Response:
             try:
                 value = multi_index(responses[target], conf["value"])
             except (IndexError, KeyError, ValueError) as ex:
-                return make_response_plain(f"{type(ex).__name__}: {ex} while resolving value of metric {name}{{target=\"{target}\"}}", 404) # pylint: disable=line-too-long
+                return make_response_plain(f"{type(ex).__name__}: {ex} while resolving value of metric {name}{{target=\"{target}\"}}", 400) # pylint: disable=line-too-long
 
             # Get labels
             if "labels" in conf:
