@@ -215,21 +215,22 @@ def webroot() -> Response:
             url = f"{conf['protocol']}://{target}{conf['path']}"
             try:
                 start = time.time()
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=5)
                 duration = time.time() - start
                 request_metric.add_metric([target, name, conf["path"]], duration)
+                if "json" == conf["format"].lower():
+                    try:
+                        response = response.json()
+                    except ValueError as ex:
+                        return make_response_plain(f"ValueError: Error while decoding json response of request \"{url}\"\r\n{ex}", 400) # pylint: disable=line-too-long
+                # Config is validated, so no else needed
+
+                if not isinstance(response, type(None)):
+                    responses[target][name] = response
+
             except requests.exceptions.Timeout:
                 # return make_response_plain(f"TimeoutError: Request \"{url}\" timed out", 400)
                 request_metric.add_metric([target, name, conf["path"]], -1)
-            if "json" == conf["format"].lower():
-                try:
-                    response = response.json()
-                except ValueError as ex:
-                    return make_response_plain(f"ValueError: Error while decoding json response of request \"{url}\"\r\n{ex}", 400) # pylint: disable=line-too-long
-            # Config is validated, so no else needed
-
-            if not isinstance(response, type(None)):
-                responses[target][name] = response
 
     # Generate Metrics
     metrics = [request_metric]
